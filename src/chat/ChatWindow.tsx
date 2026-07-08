@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { 
-  Send, Phone, Shield, LogOut, Loader2, Image as ImageIcon, 
-  Smile, Users, Check, X, AlertTriangle, MessageSquare, KeyRound
-} from 'lucide-react';
+import { Loader2, Check, X, AlertTriangle, MessageSquare } from 'lucide-react';
 import { getOrCreateLocalKeys, importPublicKey, deriveSharedKey } from '../crypto/keyManager.js';
 import { encryptText } from '../crypto/encrypt.js';
 import { decryptText } from '../crypto/decrypt.js';
 import { encryptFile } from '../crypto/imageCrypto.js';
 import { EncryptedImage } from './EncryptedImage.js';
 import VoiceCall from '../calls/VoiceCall.js';
+import {
+  WinkingSmiley, VintagePhone, WingedLock, CatAvatar, WinkingShield, WingedHeart,
+  KawaiiSmileBtn, PaletteIcon, PaperPlane, TinyLock, TinyCheck,
+  MoodCat, MoodFox, MoodBear, CloudDecor, CodeCloud, BubbleStars
+} from '../components/KawaiiIcons.js';
+
+const MOOD_OPTIONS = [
+  { id: '🐱 Cat', label: 'Cat', Icon: MoodCat },
+  { id: '🦊 Fox', label: 'Fox', Icon: MoodFox },
+  { id: '🐻 Bear', label: 'Bear', Icon: MoodBear },
+] as const;
 
 interface ChatWindowProps {
   token: string;
@@ -94,9 +102,9 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
     myMoodRef.current = myMood;
   }, [myMood]);
 
-  const handleMoodChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedMood = e.target.value;
-    setMyMood(selectedMood);
+  const handleMoodChange = async (selectedMood: string) => {
+    const nextMood = myMood === selectedMood ? '' : selectedMood;
+    setMyMood(nextMood);
 
     try {
       await fetch('/api/auth/mood', {
@@ -105,12 +113,12 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ mood: selectedMood })
+        body: JSON.stringify({ mood: nextMood })
       });
 
       const currentPartner = partnerRef.current;
       if (socket && currentPartner) {
-        socket.emit('mood:update', { recipientId: currentPartner.id, mood: selectedMood });
+        socket.emit('mood:update', { recipientId: currentPartner.id, mood: nextMood });
       }
     } catch (err) {
       console.error('Failed to update mood:', err);
@@ -484,96 +492,112 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const startCall = () => {
+    if (!partner || !partnerOnline) return;
+    setActiveCall({
+      partnerId: partner.id,
+      partnerUsername: partner.username,
+      mode: 'outgoing'
+    });
+  };
+
   return (
-    <div className="dashboard-container">
+    <div className="app-shell">
+      <CloudDecor className="cloud-bg cloud-bg-1" />
+      <CloudDecor className="cloud-bg cloud-bg-2" />
+      <CloudDecor className="cloud-bg cloud-bg-3" />
+
+      {/* Title Bar */}
+      <header className="title-bar">
+        <div className="title-left">
+          <span className="app-logo">DuoChat</span>
+          <WinkingSmiley size={32} className="title-smiley" />
+        </div>
+        <button
+          type="button"
+          className="title-phone-btn"
+          title="Secure Voice Call"
+          onClick={startCall}
+          disabled={!partner || !partnerOnline}
+        >
+          <VintagePhone size={28} />
+        </button>
+      </header>
+
+      <div className="dashboard-container">
       {/* 1. Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
-          <span className="app-logo">DuoChat</span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-            <div className="user-tag">{currentUser.username} ({currentUser.role})</div>
-            
-            {/* Mood selector */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>MOOD:</span>
-              <select 
-                value={myMood}
-                onChange={handleMoodChange}
-                style={{ 
-                  background: 'rgba(10, 12, 22, 0.9)', 
-                  border: '1px solid var(--border-color)', 
-                  padding: '2px 4px', 
-                  fontSize: '0.75rem', 
-                  cursor: 'pointer',
-                  color: 'var(--primary)',
-                  outline: 'none'
-                }}
-              >
-                <option value="">None</option>
-                <option value="🤖 Tech">🤖 Tech</option>
-                <option value="🧠 Focus">🧠 Focus</option>
-                <option value="👾 Cyber">👾 Cyber</option>
-                <option value="😎 Chill">😎 Chill</option>
-                <option value="🚨 Alert">🚨 Alert</option>
-                <option value="😴 Sleepy">😴 Sleepy</option>
-              </select>
+          <div className="user-cloud-frame">
+            <span className="user-tag">{currentUser.username} ({currentUser.role})</span>
+          </div>
+
+          <div className="mood-row">
+            <span className="mood-label">MOOD</span>
+            <div className="mood-icons">
+              {MOOD_OPTIONS.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`mood-btn ${myMood === id ? 'selected' : ''}`}
+                  title={label}
+                  onClick={() => handleMoodChange(id)}
+                  aria-label={`Set mood to ${label}`}
+                >
+                  <Icon active={myMood === id} />
+                </button>
+              ))}
             </div>
           </div>
         </div>
 
         <div className="sidebar-content">
-          <div className="section-title">Encrypted Channel</div>
+          <div className="section-title">
+            <WingedLock size={18} />
+            <span>Encrypted Channel</span>
+          </div>
           
           {partner ? (
             <div className="room-partner-card" onClick={loadPartnerAndKeys}>
               <div className="avatar">
-                {partner.username.substring(0, 2).toUpperCase()}
+                <CatAvatar initials={partner.username.substring(0, 2).toUpperCase()} size={56} />
                 <span className={`status-dot ${partnerOnline ? 'online' : ''}`}></span>
               </div>
               <div className="partner-info">
-                <h4>
-                  {partner.username}
-                  {partner.mood && (
-                    <span style={{ 
-                      fontSize: '0.7rem', 
-                      color: 'var(--primary)', 
-                      border: '1px dashed var(--border-color)', 
-                      padding: '1px 4px', 
-                      marginLeft: '6px',
-                      verticalAlign: 'middle'
-                    }}>
-                      {partner.mood}
+                <h4>{partner.username}</h4>
+                <p className="partner-status-line">
+                  {partnerOnline ? 'Connected' : 'Offline'}
+                  {aesKey && (
+                    <>
+                      <span className="status-detail"><TinyLock size={12} /> Key Exchanged E2EE</span>
+                      <span className="status-detail"><TinyCheck size={12} /></span>
+                    </>
+                  )}
+                  {!aesKey && partner.publicKey && (
+                    <span className="status-detail negotiating">
+                      <Loader2 size={10} className="animate-spin" /> Keys Negotiating...
                     </span>
                   )}
-                </h4>
-                <p>{partnerOnline ? 'Connected' : 'Offline'}</p>
-                {aesKey ? (
-                  <span style={{ fontSize: '0.65rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                    <KeyRound size={10} /> Key Exchanged E2EE
-                  </span>
-                ) : (
-                  <span style={{ fontSize: '0.65rem', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                    <Loader2 size={10} className="animate-spin" /> Keys Negotiating...
-                  </span>
-                )}
+                </p>
+                {partner.mood && <span className="partner-mood-badge">{partner.mood}</span>}
               </div>
             </div>
           ) : (
-            <div style={{ padding: '20px 10px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
-              <Users size={32} style={{ opacity: 0.2, margin: '0 auto 10px' }} />
-              Waiting for another user to join the room.
+            <div className="sidebar-empty">
+              <MessageSquare size={32} className="empty-chat-icon" />
+              <p>Waiting for another user to join the room.</p>
             </div>
           )}
         </div>
 
         <div className="sidebar-footer">
           {currentUser.role === 'admin' && (
-            <button className="icon-btn" title="Admin Approvals Panel" onClick={openAdminModal}>
-              <Shield size={20} />
+            <button className="kawaii-footer-btn" title="Admin Approvals Panel" onClick={openAdminModal}>
+              <WinkingShield size={28} />
             </button>
           )}
-          <button className="icon-btn" title="Logout" onClick={onLogout} style={{ marginLeft: 'auto' }}>
-            <LogOut size={20} />
+          <button className="kawaii-footer-btn" title="Logout" onClick={onLogout} style={{ marginLeft: 'auto' }}>
+            <WingedHeart size={28} />
           </button>
         </div>
       </div>
@@ -588,22 +612,6 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
                 <h3>{partner.username}</h3>
                 <p>{partnerOnline ? 'Online' : 'Offline'}</p>
               </div>
-              
-              <div className="header-actions">
-                <button 
-                  className={`icon-btn ${activeCall ? 'call-active' : ''}`} 
-                  title="Secure Voice Call"
-                  onClick={() => setActiveCall({
-                    partnerId: partner.id,
-                    partnerUsername: partner.username,
-                    mode: 'outgoing'
-                  })}
-                  disabled={!partnerOnline}
-                  style={{ opacity: partnerOnline ? 1 : 0.5 }}
-                >
-                  <Phone size={20} />
-                </button>
-              </div>
             </div>
 
             {/* Messages Viewport */}
@@ -611,16 +619,21 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
               {messages.length === 0 ? (
                 <div className="empty-chat">
                   <div className="empty-chat-icon">🔒</div>
-                  <h4>SECURE CHANNEL ACTIVE</h4>
-                  <p>Client-side end-to-end encryption (AES-256-GCM) verified. Zero-knowledge data streaming active.</p>
+                  <h4>Secure Channel Active</h4>
+                  <p>End-to-end encryption verified. Your messages are private.</p>
                 </div>
               ) : (
-                messages.map((msg) => (
-                  <div key={msg.id} className={`message-row ${msg.senderId === currentUser.id ? 'user' : 'peer'}`}>
+                messages.map((msg, idx) => {
+                  const isUser = msg.senderId === currentUser.id;
+                  const isPeer = !isUser;
+                  const showDecor = isPeer && idx === messages.length - 1;
+                  return (
+                  <div key={msg.id} className={`message-row ${isUser ? 'user' : 'peer'}`}>
                     <div className="message-bubble">
-                      {msg.senderId === currentUser.id && (
+                      {showDecor && <BubbleStars />}
+                      {isUser && (
                         <button className="unsend-btn" onClick={() => handleUnsendMessage(msg.id)}>
-                          [UNSEND]
+                          unsend
                         </button>
                       )}
                       
@@ -640,15 +653,16 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
                       <span className="message-time">{formatTime(msg.timestamp)}</span>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
 
               {partnerTyping && (
                 <div className="typing-indicator-row">
                   <div className="typing-dots">
-                    <span></span>
+                    <span></span><span></span><span></span>
                   </div>
-                  <span className="typing-text">[ {partner.username.toUpperCase()} IS TRANSMITTING DATA ]</span>
+                  <span className="typing-text">{partner.username} is typing...</span>
                 </div>
               )}
 
@@ -658,20 +672,21 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
             {/* Input Bar */}
             <div className="chat-footer">
               {!aesKey && (
-                <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid var(--warning)', borderRadius: '10px', padding: '10px', fontSize: '0.8rem', color: 'var(--warning)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="key-warning">
                   <AlertTriangle size={16} />
-                  <span>Key exchange incomplete. Waiting for the partner to set up their encryption keys.</span>
+                  <span>Key exchange incomplete. Waiting for the partner to set up encryption keys.</span>
                 </div>
               )}
               
-              <form onSubmit={handleSendMessage} className="input-container">
+              <form onSubmit={handleSendMessage} className="input-container cloud-input">
                 <button 
                   type="button" 
-                  className="icon-btn" 
-                  style={{ border: 'none', background: 'transparent', width: '30px', height: '30px' }}
+                  className="kawaii-input-btn" 
+                  title="Insert emoji"
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  disabled={!aesKey}
                 >
-                  <Smile size={20} />
+                  <KawaiiSmileBtn size={32} />
                 </button>
 
                 {showEmojiPicker && (
@@ -692,8 +707,8 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
                   </div>
                 )}
 
-                <label htmlFor="file-upload" className="icon-btn" style={{ border: 'none', background: 'transparent', width: '30px', height: '30px', cursor: 'pointer' }} title="Send Secure Image">
-                  <ImageIcon size={20} />
+                <label htmlFor="file-upload" className="kawaii-input-btn" title="Send Secure Image" style={{ cursor: aesKey ? 'pointer' : 'not-allowed', opacity: aesKey ? 1 : 0.4 }}>
+                  <PaletteIcon size={32} />
                   <input 
                     type="file" 
                     id="file-upload" 
@@ -719,10 +734,12 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
                   disabled={!aesKey}
                 />
 
-                <button type="submit" className="icon-btn" style={{ border: 'none', background: 'transparent', width: '30px', height: '30px' }} disabled={!aesKey || !inputText.trim()}>
-                  <Send size={20} />
+                <button type="submit" className="kawaii-input-btn send-btn" title="Send message" disabled={!aesKey || !inputText.trim()}>
+                  <PaperPlane size={32} />
                 </button>
               </form>
+
+              <CodeCloud />
             </div>
           </>
         ) : (
@@ -732,6 +749,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
             <p>Welcome to DuoChat. Waiting for the administrator to approve another user so you can start chatting securely.</p>
           </div>
         )}
+      </div>
       </div>
 
       {/* 3. Admin Approval Modal */}

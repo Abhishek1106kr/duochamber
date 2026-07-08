@@ -37,6 +37,11 @@ app.use('/api/crypto', cryptoRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/messages', messagesRouter);
 
+// Root Health Check
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'healthy', message: 'DuoChat Server is running' });
+});
+
 // Map of userId -> socket.id
 const activeUsers = new Map<string, string>();
 
@@ -194,7 +199,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 server.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`DuoChat Server is running on port ${PORT}`);
+  console.log(`DuoChat Server running on port ${PORT}`);
 });

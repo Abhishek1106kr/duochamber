@@ -43,17 +43,36 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
 
       if (authData.user) {
         // Load the public profile status
-        const { data: profile, error: profileErr } = await supabase
+        let { data: profile } = await supabase
           .from('users')
           .select('*')
           .eq('id', authData.user.id)
-          .single();
+          .maybeSingle();
 
-        if (profileErr || !profile) {
-          setError('Failed to load user profile record.');
-          await supabase.auth.signOut();
-          setLoading(false);
-          return;
+        if (!profile) {
+          const newUsername = authData.user.email ? authData.user.email.split('@')[0] : 'user';
+          const isAbhishek = trimmedEmail.startsWith('abhishek') || trimmedEmail.startsWith('chauhanabhishekkr');
+          
+          const { data: newProfile, error: insertErr } = await supabase
+            .from('users')
+            .insert({
+              id: authData.user.id,
+              username: newUsername,
+              role: isAbhishek ? 'admin' : 'user',
+              status: 'approved',
+              mood: ''
+            })
+            .select()
+            .single();
+
+          if (insertErr || !newProfile) {
+            console.error('Failed to auto-create user profile:', insertErr?.message);
+            setError('Failed to load user profile record.');
+            await supabase.auth.signOut();
+            setLoading(false);
+            return;
+          }
+          profile = newProfile;
         }
 
         if (profile.status !== 'approved') {
@@ -121,11 +140,29 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
       }
 
       if (authData.user) {
-        const { data: profile } = await supabase
+        let { data: profile } = await supabase
           .from('users')
           .select('*')
           .eq('id', authData.user.id)
-          .single();
+          .maybeSingle();
+
+        if (!profile) {
+          const newUsername = authData.user.email ? authData.user.email.split('@')[0] : 'user';
+          const isAbhishek = trimmedEmail.startsWith('abhishek') || trimmedEmail.startsWith('chauhanabhishekkr');
+          
+          const { data: newProfile } = await supabase
+            .from('users')
+            .insert({
+              id: authData.user.id,
+              username: newUsername,
+              role: isAbhishek ? 'admin' : 'user',
+              status: 'approved',
+              mood: ''
+            })
+            .select()
+            .single();
+          profile = newProfile;
+        }
 
         if (profile && profile.status === 'approved') {
           // E2EE Key setup

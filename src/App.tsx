@@ -53,11 +53,40 @@ export default function App() {
 
   async function loadProfile(userId: string) {
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching public user record:', error.message);
+      }
+
+      if (!data) {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+          const email = authUser.email || '';
+          const newUsername = email.split('@')[0] || 'user';
+          const isAbhishek = email.startsWith('abhishek') || email.startsWith('chauhanabhishekkr');
+          
+          const { data: newProfile, error: insertErr } = await supabase
+            .from('users')
+            .insert({
+              id: userId,
+              username: newUsername,
+              role: isAbhishek ? 'admin' : 'user',
+              status: 'approved',
+              mood: ''
+            })
+            .select()
+            .single();
+
+          if (!insertErr && newProfile) {
+            data = newProfile;
+          }
+        }
+      }
 
       if (data) {
         setUser({
@@ -67,8 +96,6 @@ export default function App() {
           status: data.status,
           hasPublicKey: !!data.public_key
         });
-      } else {
-        if (error) console.error('Error fetching public user record:', error.message);
       }
     } catch (err) {
       console.error('Failed to load user profile:', err);

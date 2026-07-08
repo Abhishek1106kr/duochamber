@@ -8,7 +8,7 @@ interface LoginRegisterProps {
 
 export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
   const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -21,23 +21,22 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     setMessage('');
     setLoading(true);
 
-    if (!username || !password) {
+    if (!email || !password) {
       setError('Please fill in all fields.');
       setLoading(false);
       return;
     }
 
     try {
-      // Predefined domain email format matching username logins
-      const email = `${username.toLowerCase().trim()}@duochat.local`;
+      const trimmedEmail = email.toLowerCase().trim();
       
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
+        email: trimmedEmail,
         password
       });
 
       if (authError) {
-        setError(authError.message === 'Invalid login credentials' ? 'Invalid username or password.' : authError.message);
+        setError(authError.message === 'Invalid login credentials' ? 'Invalid email or password.' : authError.message);
         setLoading(false);
         return;
       }
@@ -109,9 +108,9 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     setError('');
     setLoading(true);
     try {
-      const email = `${username.toLowerCase().trim()}@duochat.local`;
+      const trimmedEmail = email.toLowerCase().trim();
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
+        email: trimmedEmail,
         password
       });
 
@@ -169,7 +168,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
         <div className="auth-card pending-card">
           <div className="pending-icon">⏳</div>
           <h2>Pending Approval</h2>
-          <p>Your user profile <strong>{username}</strong> has been registered. You must be approved by the administrator before accessing the chatroom.</p>
+          <p>Your user profile <strong>{email}</strong> has been registered. You must be approved by the administrator before accessing the chatroom.</p>
           
           {error && <div style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '15px' }}>{error}</div>}
 
@@ -182,7 +181,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
             style={{ marginTop: '10px' }} 
             onClick={() => {
               setIsPendingApproval(false);
-              setUsername('');
+              setEmail('');
               setPassword('');
               setError('');
             }}
@@ -203,14 +202,14 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor="email">Email Address</label>
             <input
-              type="text"
-              id="username"
+              type="email"
+              id="email"
               className="form-input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. abhishek"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="e.g. abhishek@duochat.local"
               required
             />
           </div>

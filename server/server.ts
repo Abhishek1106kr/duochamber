@@ -194,7 +194,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000 ||10000;
 server.listen(PORT, () => {
   console.log(`DuoChat Server is running on http://localhost:${PORT}`);
 });

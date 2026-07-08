@@ -13,15 +13,39 @@ import { prisma } from './database/prisma.js';
 
 const app = express();
 const server = http.createServer(app);
+
+const allowedOrigins = [
+  'https://duochamber22.vercel.app',
+  'https://duochamber22-fpkb85uk5-demodesks-projects.vercel.app'
+];
+
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps, curl, or postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin matches allowed list, ends with .vercel.app, or is local dev
+    if (
+      allowedOrigins.includes(origin) || 
+      origin.endsWith('.vercel.app') || 
+      origin.startsWith('http://localhost:') || 
+      origin.startsWith('http://127.0.0.1:')
+    ) {
+      return callback(null, true);
+    }
+    
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+};
+
 const io = new Server(server, {
-  cors: {
-    origin: '*', // For local development simplicity. In production, configure to frontend domain.
-    methods: ['GET', 'POST']
-  }
+  cors: corsOptions
 });
 
 // Configure Middlewares
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Ensure uploads folder exists and serve it statically

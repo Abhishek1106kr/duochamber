@@ -12,6 +12,7 @@ import {
   KawaiiSmileBtn, PaletteIcon, PaperPlane, TinyLock, TinyCheck,
   MoodCat, MoodFox, MoodBear, CloudDecor, CodeCloud, BubbleStars
 } from '../components/KawaiiIcons.js';
+import { BACKEND_URL, API_URL } from '../config.js';
 
 const MOOD_OPTIONS = [
   { id: '🐱 Cat', label: 'Cat', Icon: MoodCat },
@@ -107,7 +108,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
     setMyMood(nextMood);
 
     try {
-      await fetch('/api/auth/mood', {
+      await fetch(`${API_URL}/api/auth/mood`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -135,7 +136,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
   // Load Partner profile and derive Shared E2EE Key
   const loadPartnerAndKeys = React.useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/chat-partner', {
+      const res = await fetch(`${API_URL}/api/auth/chat-partner`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) return;
@@ -177,7 +178,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
 
   // Connect WebSockets on mount
   useEffect(() => {
-    const socketInstance = io('/', {
+    const socketInstance = io(BACKEND_URL || '/', {
       auth: { token }
     });
     setSocket(socketInstance);
@@ -249,7 +250,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
 
     async function loadHistory() {
       try {
-        const res = await fetch('/api/messages', {
+        const res = await fetch(`${API_URL}/api/messages`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!res.ok) return;
@@ -386,7 +387,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
       const formData = new FormData();
       formData.append('file', encryptedBlob, file.name);
 
-      const uploadRes = await fetch('/api/upload', {
+      const uploadRes = await fetch(`${API_URL}/api/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
@@ -434,7 +435,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
   const handleUnsendMessage = async (messageId: string) => {
     if (!confirm('Are you sure you want to unsend this message?')) return;
     try {
-      const res = await fetch(`/api/messages/${messageId}`, {
+      const res = await fetch(`${API_URL}/api/messages/${messageId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -450,7 +451,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
   const openAdminModal = async () => {
     setAdminModalOpen(true);
     try {
-      const res = await fetch('/api/auth/admin/users', {
+      const res = await fetch(`${API_URL}/api/auth/admin/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -464,7 +465,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
 
   const handleUserApproveStatus = async (userId: string, newStatus: 'approved' | 'rejected') => {
     try {
-      const res = await fetch('/api/auth/admin/approve', {
+      const res = await fetch(`${API_URL}/api/auth/admin/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

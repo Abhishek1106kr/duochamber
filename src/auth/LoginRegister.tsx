@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getOrCreateLocalKeys } from '../crypto/keyManager.js';
+import { API_URL } from '../config.js';
 
 interface LoginRegisterProps {
   onAuthSuccess: (token: string, user: any) => void;
@@ -27,7 +28,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     }
 
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const endpoint = isLogin ? `${API_URL}/api/auth/login` : `${API_URL}/api/auth/register`;
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,7 +57,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
           const keys = await getOrCreateLocalKeys(user.username);
           // If server doesn't have the public key yet, upload it
           if (!user.hasPublicKey) {
-            const uploadRes = await fetch('/api/crypto/keys', {
+            const uploadRes = await fetch(`${API_URL}/api/crypto/keys`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -98,7 +99,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     setLoading(true);
     try {
       // Attempt login to check if approved
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -114,7 +115,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
         // E2EE Key setup
         const keys = await getOrCreateLocalKeys(user.username);
         if (!user.hasPublicKey) {
-          await fetch('/api/crypto/keys', {
+          await fetch(`${API_URL}/api/crypto/keys`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

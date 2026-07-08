@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { BACKEND_URL } from '../config.js';
 
 interface EncryptedImageProps {
   src: string;
@@ -17,7 +18,8 @@ export function EncryptedImage({ src, nonce, aesKey, mimeType }: EncryptedImageP
     
     async function loadAndDecrypt() {
       try {
-        const res = await fetch(src);
+        const fetchUrl = src.startsWith('/') ? `${BACKEND_URL}${src}` : src;
+        const res = await fetch(fetchUrl);
         if (!res.ok) throw new Error('Failed to fetch encrypted image');
         const blob = await res.blob();
         

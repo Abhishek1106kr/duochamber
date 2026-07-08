@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import LoginRegister from './auth/LoginRegister.js';
 import ChatWindow from './chat/ChatWindow.js';
+import { API_URL } from './config.js';
 
 export interface UserProfile {
   id: string;
@@ -23,7 +24,7 @@ export default function App() {
       }
 
       try {
-        const res = await fetch('/api/auth/me', {
+        const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

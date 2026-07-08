@@ -12,14 +12,32 @@ import { router as messagesRouter } from './routes/messages.js';
 import { prisma } from './database/prisma.js';
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = [
+    'https://duochamber22.vercel.app',
+    'https://duochamber22-fpkb85uk5-demodesks-projects.vercel.app'
+];
+const corsOptions = {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, curl, or postman)
+        if (!origin)
+            return callback(null, true);
+        // Check if origin matches allowed list, ends with .vercel.app, or is local dev
+        if (allowedOrigins.includes(origin) ||
+            origin.endsWith('.vercel.app') ||
+            origin.startsWith('http://localhost:') ||
+            origin.startsWith('http://127.0.0.1:')) {
+            return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+};
 const io = new Server(server, {
-    cors: {
-        origin: '*', // For local development simplicity. In production, configure to frontend domain.
-        methods: ['GET', 'POST']
-    }
+    cors: corsOptions
 });
 // Configure Middlewares
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 // Ensure uploads folder exists and serve it statically
 const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -32,6 +50,10 @@ app.use('/api/auth', authRouter);
 app.use('/api/crypto', cryptoRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/messages', messagesRouter);
+// Root Health Check
+app.get('/', (req, res) => {
+    res.status(200).json({ status: 'healthy', message: 'DuoChat Server is running' });
+});
 // Map of userId -> socket.id
 const activeUsers = new Map();
 // Socket.io JWT Authentication Middleware
@@ -168,7 +190,7 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('presence:state', { userId, status: 'offline' });
     });
 });
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-    console.log(`DuoChat Server is running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 10000;
+server.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`DuoChat Server running on port ${PORT}`);
 });

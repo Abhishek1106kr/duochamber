@@ -12,7 +12,7 @@ import {
   KawaiiSmileBtn, PaletteIcon, PaperPlane, TinyLock, TinyCheck,
   MoodCat, MoodFox, MoodBear, CloudDecor, CodeCloud, BubbleStars
 } from '../components/KawaiiIcons.js';
-import { BACKEND_URL, API_URL } from '../config.js';
+import { API_URL, WS_URL } from '../config.js';
 
 const MOOD_OPTIONS = [
   { id: '🐱 Cat', label: 'Cat', Icon: MoodCat },
@@ -178,7 +178,7 @@ export default function ChatWindow({ token, currentUser, onLogout }: ChatWindowP
 
   // Connect WebSockets on mount
   useEffect(() => {
-    const socketInstance = io(BACKEND_URL || '/', {
+    const socketInstance = io(WS_URL || '/', {
       auth: { token }
     });
     setSocket(socketInstance);

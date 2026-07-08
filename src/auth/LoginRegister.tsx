@@ -75,6 +75,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
           console.error('Error generating/uploading crypto keys:', keyErr);
         }
 
+        setError('');
         onAuthSuccess(token, user);
       } else {
         // Successful register
@@ -126,6 +127,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
           user.hasPublicKey = true;
         }
 
+        setError('');
         onAuthSuccess(token, user);
       } else {
         if (data.status === 'pending') {

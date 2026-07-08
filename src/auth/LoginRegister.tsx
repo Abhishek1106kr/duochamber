@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { getOrCreateLocalKeys } from '../crypto/keyManager.js';
-import { API_URL } from '../config.js';
+import { supabase } from '../supabaseClient.js';
 
 interface LoginRegisterProps {
   onAuthSuccess: (token: string, user: any) => void;
@@ -28,47 +28,60 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     }
 
     try {
-      const endpoint = isLogin ? `${API_URL}/api/auth/login` : `${API_URL}/api/auth/register`;
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+      // Predefined domain email format matching username logins
+      const email = `${username.toLowerCase().trim()}@duochat.local`;
+      
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.status === 'pending') {
-          setIsPendingApproval(true);
-        } else {
-          setError(data.error || 'Something went wrong');
-        }
+      if (authError) {
+        setError(authError.message === 'Invalid login credentials' ? 'Invalid username or password.' : authError.message);
         setLoading(false);
         return;
       }
 
-      if (isLogin) {
-        // Success login
-        const token = data.token;
-        const user = data.user;
+      if (authData.user) {
+        // Load the public profile status
+        const { data: profile, error: profileErr } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (profileErr || !profile) {
+          setError('Failed to load user profile record.');
+          await supabase.auth.signOut();
+          setLoading(false);
+          return;
+        }
+
+        if (profile.status !== 'approved') {
+          if (profile.status === 'pending') {
+            setIsPendingApproval(true);
+          } else {
+            setError('Access has been rejected by the administrator.');
+          }
+          await supabase.auth.signOut();
+          setLoading(false);
+          return;
+        }
 
         // E2EE Key Initialization
         try {
-          const keys = await getOrCreateLocalKeys(user.username);
+          const keys = await getOrCreateLocalKeys(profile.username);
           // If server doesn't have the public key yet, upload it
-          if (!user.hasPublicKey) {
-            const uploadRes = await fetch(`${API_URL}/api/crypto/keys`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({ publicKeyBundle: keys.publicKeyJwk })
-            });
-            if (!uploadRes.ok) {
-              console.error('Failed to upload public key to server');
+          if (!profile.public_key) {
+            const { error: keyUpdateErr } = await supabase
+              .from('users')
+              .update({ public_key: JSON.stringify(keys.publicKeyJwk) })
+              .eq('id', profile.id);
+              
+            if (keyUpdateErr) {
+              console.error('Failed to upload public key to Supabase:', keyUpdateErr.message);
             } else {
-              user.hasPublicKey = true;
+              profile.public_key = JSON.stringify(keys.publicKeyJwk);
             }
           }
         } catch (keyErr) {
@@ -76,19 +89,16 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
         }
 
         setError('');
-        onAuthSuccess(token, user);
-      } else {
-        // Successful register
-        if (data.user.status === 'approved') {
-          setMessage('First user registered and automatically approved as admin! You can now log in.');
-        } else {
-          setMessage('Registration request submitted! Please wait for the administrator to approve your account.');
-          setIsPendingApproval(true);
-        }
-        setIsLogin(true);
+        onAuthSuccess(authData.session!.access_token, {
+          id: profile.id,
+          username: profile.username,
+          role: profile.role,
+          status: profile.status,
+          hasPublicKey: !!profile.public_key
+        });
       }
-    } catch (err) {
-      setError('Connection to server failed.');
+    } catch (err: any) {
+      setError('Connection to auth database failed.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -99,46 +109,55 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     setError('');
     setLoading(true);
     try {
-      // Attempt login to check if approved
-      const response = await fetch(`${API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+      const email = `${username.toLowerCase().trim()}@duochat.local`;
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
       });
 
-      const data = await response.json();
+      if (authError) {
+        setError(authError.message);
+        setLoading(false);
+        return;
+      }
 
-      if (response.ok) {
-        // Approved! Let's log in
-        const token = data.token;
-        const user = data.user;
+      if (authData.user) {
+        const { data: profile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authData.user.id)
+          .single();
 
-        // E2EE Key setup
-        const keys = await getOrCreateLocalKeys(user.username);
-        if (!user.hasPublicKey) {
-          await fetch(`${API_URL}/api/crypto/keys`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ publicKeyBundle: keys.publicKeyJwk })
+        if (profile && profile.status === 'approved') {
+          // E2EE Key setup
+          const keys = await getOrCreateLocalKeys(profile.username);
+          if (!profile.public_key) {
+            await supabase
+              .from('users')
+              .update({ public_key: JSON.stringify(keys.publicKeyJwk) })
+              .eq('id', profile.id);
+            profile.public_key = JSON.stringify(keys.publicKeyJwk);
+          }
+
+          setError('');
+          onAuthSuccess(authData.session!.access_token, {
+            id: profile.id,
+            username: profile.username,
+            role: profile.role,
+            status: profile.status,
+            hasPublicKey: !!profile.public_key
           });
-          user.hasPublicKey = true;
-        }
-
-        setError('');
-        onAuthSuccess(token, user);
-      } else {
-        if (data.status === 'pending') {
+        } else if (profile && profile.status === 'pending') {
           setError('Still pending approval. Please ask the administrator.');
+          await supabase.auth.signOut();
         } else {
-          setError(data.error || 'Failed to authenticate');
-          setIsPendingApproval(false); // Reset back to screen
+          setError('Access rejected.');
+          await supabase.auth.signOut();
+          setIsPendingApproval(false);
         }
       }
     } catch (e) {
-      setError('Failed to reach server.');
+      setError('Failed to reach authentication server.');
     } finally {
       setLoading(false);
     }
@@ -180,7 +199,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
     <div className="auth-wrapper">
       <div className="auth-card">
         <h2>{isLogin ? 'Welcome Back' : 'Create Chat Request'}</h2>
-        <p>{isLogin ? 'Enter details to enter your DuoChat room' : 'Submit a request to chat in the room'}</p>
+        <p>{isLogin ? 'Enter credentials to enter your DuoChat room' : 'Submit a request to chat in the room'}</p>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -191,7 +210,7 @@ export default function LoginRegister({ onAuthSuccess }: LoginRegisterProps) {
               className="form-input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. alice"
+              placeholder="e.g. abhishek"
               required
             />
           </div>

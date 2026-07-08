@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BACKEND_URL } from '../config.js';
+import { supabase } from '../supabaseClient.js';
 
 interface EncryptedImageProps {
   src: string;
@@ -18,10 +18,21 @@ export function EncryptedImage({ src, nonce, aesKey, mimeType }: EncryptedImageP
     
     async function loadAndDecrypt() {
       try {
-        const fetchUrl = src.startsWith('/') ? `${BACKEND_URL}${src}` : src;
-        const res = await fetch(fetchUrl);
-        if (!res.ok) throw new Error('Failed to fetch encrypted image');
-        const blob = await res.blob();
+        let blob: Blob;
+        
+        // If it looks like a relative/absolute HTTP path, fetch normally.
+        // Otherwise, download from Supabase Storage 'uploads' bucket.
+        if (src.startsWith('/') || src.startsWith('http')) {
+          const res = await fetch(src);
+          if (!res.ok) throw new Error('Failed to fetch encrypted image');
+          blob = await res.blob();
+        } else {
+          const { data, error: storageErr } = await supabase.storage
+            .from('uploads')
+            .download(src);
+          if (storageErr || !data) throw new Error(storageErr?.message || 'Storage download error');
+          blob = data;
+        }
         
         const { decryptFile } = await import('../crypto/imageCrypto.js');
         const url = await decryptFile(blob, nonce, aesKey, mimeType);

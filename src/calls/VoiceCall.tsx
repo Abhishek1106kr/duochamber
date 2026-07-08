@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, Mic, MicOff, Volume2 } from 'lucide-react';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface VoiceCallProps {
   partnerId: string;
   partnerUsername: string;
+  currentUserId: string;
   mode: 'incoming' | 'outgoing' | 'connected';
-  socket: any;
+  channel: RealtimeChannel;
   onEndCall: () => void;
   incomingOfferSdp?: any; // If caller sent an offer already
 }
@@ -13,10 +15,11 @@ interface VoiceCallProps {
 export default function VoiceCall({
   partnerId,
   partnerUsername,
+  currentUserId,
   mode: initialMode,
-  socket,
+  channel,
   onEndCall,
-  incomingOfferSdp
+  incomingOfferSdp: _incomingOfferSdp
 }: VoiceCallProps) {
   const [callState, setCallState] = useState<'incoming' | 'outgoing' | 'connected'>(initialMode);
   const [mute, setMute] = useState(false);
@@ -55,70 +58,97 @@ export default function VoiceCall({
     };
   }, [callState]);
 
+  // Helper to send a signaling event via broadcast channel
+  const sendSignal = (type: string, payloadData: any = {}) => {
+    channel.send({
+      type: 'broadcast',
+      event: 'signal',
+      payload: {
+        type,
+        senderId: currentUserId,
+        recipientId: partnerId,
+        ...payloadData
+      }
+    });
+  };
+
   // Clean up media streams and RTCPeerConnection on unmount
   useEffect(() => {
-    // Listen for peer hang up
-    socket.on('call:end', () => {
-      console.log('Call ended by peer');
-      cleanupCall();
-      onEndCall();
-    });
+    const handleSignal = async (event: any) => {
+      const payload = event.payload;
+      // Filter out messages not meant for us or from our partner
+      if (payload.recipientId !== currentUserId || payload.senderId !== partnerId) return;
 
-    socket.on('call:reject', () => {
-      console.log('Call rejected by peer');
-      cleanupCall();
-      onEndCall();
-    });
+      switch (payload.type) {
+        case 'call:end':
+          console.log('Call ended by peer');
+          cleanupCall();
+          onEndCall();
+          break;
 
-    // Handle signaling from peer during negotiation
-    socket.on('webrtc:offer', async ({ sdp }: any) => {
-      if (pcRef.current) {
-        try {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          const answer = await pcRef.current.createAnswer();
-          await pcRef.current.setLocalDescription(answer);
-          socket.emit('webrtc:answer', { recipientId: partnerId, sdp: answer });
-          setCallState('connected');
-        } catch (err) {
-          console.error('Failed to handle incoming offer sdp', err);
-        }
+        case 'call:reject':
+          console.log('Call rejected by peer');
+          cleanupCall();
+          onEndCall();
+          break;
+
+        case 'webrtc:offer':
+          if (pcRef.current) {
+            try {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              const answer = await pcRef.current.createAnswer();
+              await pcRef.current.setLocalDescription(answer);
+              sendSignal('webrtc:answer', { sdp: answer });
+              setCallState('connected');
+            } catch (err) {
+              console.error('Failed to handle incoming offer sdp', err);
+            }
+          }
+          break;
+
+        case 'webrtc:answer':
+          if (pcRef.current) {
+            try {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              setCallState('connected');
+            } catch (err) {
+              console.error('Failed to set remote description of answer sdp', err);
+            }
+          }
+          break;
+
+        case 'webrtc:ice-candidate':
+          if (pcRef.current) {
+            try {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+            } catch (err) {
+              console.error('Failed to add ICE candidate', err);
+            }
+          }
+          break;
+
+        case 'call:accept':
+          try {
+            if (pcRef.current) {
+              const offer = await pcRef.current.createOffer();
+              await pcRef.current.setLocalDescription(offer);
+              sendSignal('webrtc:offer', { sdp: offer });
+            }
+          } catch (err) {
+            console.error('Error generating offer on accept', err);
+          }
+          break;
       }
-    });
+    };
 
-    socket.on('webrtc:answer', async ({ sdp }: any) => {
-      if (pcRef.current) {
-        try {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          setCallState('connected');
-        } catch (err) {
-          console.error('Failed to set remote description of answer sdp', err);
-        }
-      }
-    });
-
-    socket.on('webrtc:ice-candidate', async ({ candidate }: any) => {
-      if (pcRef.current) {
-        try {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('Failed to add ICE candidate', err);
-        }
-      }
-    });
+    // Listen to broadcast signals
+    channel.on('broadcast', { event: 'signal' }, handleSignal);
 
     if (callState === 'outgoing') {
-      // Start call negotiation immediately as caller
       startCall();
-    } else if (callState === 'incoming' && incomingOfferSdp) {
-      // Callee holds off initialization until they click "Accept"
     }
 
     return () => {
-      socket.off('call:end');
-      socket.off('call:reject');
-      socket.off('webrtc:offer');
-      socket.off('webrtc:answer');
-      socket.off('webrtc:ice-candidate');
       cleanupCall();
     };
   }, [callState]);
@@ -131,11 +161,11 @@ export default function VoiceCall({
 
       // 2. Initialize Peer Connection
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] // Standard public Google STUN server
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
       pcRef.current = pc;
 
-      // Add local track to peer connection
+      // Add local track
       stream.getTracks().forEach((track) => {
         pc.addTrack(track, stream);
       });
@@ -143,7 +173,7 @@ export default function VoiceCall({
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          socket.emit('webrtc:ice-candidate', { recipientId: partnerId, candidate: event.candidate });
+          sendSignal('webrtc:ice-candidate', { candidate: event.candidate });
         }
       };
 
@@ -155,19 +185,7 @@ export default function VoiceCall({
       };
 
       // 3. Send Call Request
-      socket.emit('call:initiate', { recipientId: partnerId });
-
-      // Handle when callee accepts
-      socket.on('call:accept', async () => {
-        try {
-          // Callee accepted! Generate WebRTC Offer SDP
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit('webrtc:offer', { recipientId: partnerId, sdp: offer });
-        } catch (err) {
-          console.error('Error generating offer', err);
-        }
-      });
+      sendSignal('call:initiate');
 
     } catch (err) {
       console.error('Microphone access denied', err);
@@ -195,7 +213,7 @@ export default function VoiceCall({
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          socket.emit('webrtc:ice-candidate', { recipientId: partnerId, candidate: event.candidate });
+          sendSignal('webrtc:ice-candidate', { candidate: event.candidate });
         }
       };
 
@@ -206,7 +224,7 @@ export default function VoiceCall({
       };
 
       // Emit accepted call back to caller
-      socket.emit('call:accept', { recipientId: partnerId });
+      sendSignal('call:accept');
       setCallState('connected');
     } catch (err) {
       console.error('Microphone access denied', err);
@@ -215,13 +233,13 @@ export default function VoiceCall({
   };
 
   const declineCall = () => {
-    socket.emit('call:reject', { recipientId: partnerId });
+    sendSignal('call:reject');
     cleanupCall();
     onEndCall();
   };
 
   const endActiveCall = () => {
-    socket.emit('call:end', { recipientId: partnerId });
+    sendSignal('call:end');
     cleanupCall();
     onEndCall();
   };
@@ -278,7 +296,7 @@ export default function VoiceCall({
 
       {callState === 'outgoing' && (
         <>
-          <p className="call-status">RINGING...</p>
+          <p className="call-status">RINGING Ringing...</p>
           <div className="call-controls">
             <button className="call-btn decline" onClick={endActiveCall}>
               <PhoneOff size={28} />

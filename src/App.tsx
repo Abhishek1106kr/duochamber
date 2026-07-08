@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import LoginRegister from './auth/LoginRegister.js';
 import ChatWindow from './chat/ChatWindow.js';
-import { API_URL } from './config.js';
+import { supabase } from './supabaseClient.js';
 
 export interface UserProfile {
   id: string;
@@ -12,51 +12,77 @@ export interface UserProfile {
 }
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('duochat_token'));
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function checkAuth() {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
+    // 1. Fetch initial session and get user profile
+    async function initSession() {
       try {
-        const res = await fetch(`${API_URL}/api/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-
-        if (res.ok) {
-          const userData = await res.json();
-          setUser(userData);
-        } else {
-          // Token expired or invalid
-          handleLogout();
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        if (initialSession?.user) {
+          setSessionToken(initialSession.access_token);
+          await loadProfile(initialSession.user.id);
         }
       } catch (err) {
-        console.error('Auth verification check failed:', err);
-        // We do not log out immediately on simple connection failure, only if status code is explicit
+        console.error('Failed to get Supabase session:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    checkAuth();
-  }, [token]);
+    initSession();
 
-  const handleAuthSuccess = (newToken: string, authenticatedUser: UserProfile) => {
-    localStorage.setItem('duochat_token', newToken);
-    setToken(newToken);
-    setUser(authenticatedUser);
+    // 2. Listen to auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (newSession?.user) {
+        setSessionToken(newSession.access_token);
+        await loadProfile(newSession.user.id);
+      } else {
+        setSessionToken(null);
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function loadProfile(userId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (data) {
+        setUser({
+          id: data.id,
+          username: data.username,
+          role: data.role,
+          status: data.status,
+          hasPublicKey: !!data.public_key
+        });
+      } else {
+        if (error) console.error('Error fetching public user record:', error.message);
+      }
+    } catch (err) {
+      console.error('Failed to load user profile:', err);
+    }
+  }
+
+  const handleAuthSuccess = (newToken: string, profile: UserProfile) => {
+    setSessionToken(newToken);
+    setUser(profile);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('duochat_token');
-    setToken(null);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSessionToken(null);
     setUser(null);
   };
 
@@ -75,8 +101,8 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {token && user ? (
-        <ChatWindow token={token} currentUser={user} onLogout={handleLogout} />
+      {sessionToken && user ? (
+        <ChatWindow token={sessionToken} currentUser={user} onLogout={handleLogout} />
       ) : (
         <LoginRegister onAuthSuccess={handleAuthSuccess} />
       )}

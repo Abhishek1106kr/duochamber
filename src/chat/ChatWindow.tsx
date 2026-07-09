@@ -60,6 +60,7 @@ const emojis = ['🌸', '✨', '☁️', '🎀', '🧸', '🍭', '🍓', '🐾',
 
 export default function ChatWindow({ token: _token, currentUser, onLogout }: ChatWindowProps) {
   const [partner, setPartner] = useState<PartnerProfile | null>(null);
+  const [partners, setPartners] = useState<PartnerProfile[]>([]);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState('');
   const [aesKey, setAesKey] = useState<CryptoKey | null>(null);
@@ -125,49 +126,76 @@ export default function ChatWindow({ token: _token, currentUser, onLogout }: Cha
     partnerRef.current = partner;
   }, [partner]);
 
-  // Load Partner profile and derive Shared E2EE Key
+  // Load all approved partners
   const loadPartnerAndKeys = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .neq('id', currentUser.id)
-        .eq('status', 'approved')
-        .maybeSingle();
+        .eq('status', 'approved');
 
       if (error) {
         console.error('Error fetching partner details:', error.message);
         return;
       }
 
-      if (!data) {
+      if (!data || data.length === 0) {
+        setPartners([]);
         setPartner(null);
         return;
       }
 
-      setPartner({
-        id: data.id,
-        username: data.username,
-        role: data.role,
-        status: data.status,
-        publicKey: data.public_key,
-        mood: data.mood
+      const formattedPartners: PartnerProfile[] = data.map((usr: any) => ({
+        id: usr.id,
+        username: usr.username,
+        role: usr.role,
+        status: usr.status,
+        publicKey: usr.public_key,
+        mood: usr.mood
+      }));
+
+      setPartners(formattedPartners);
+
+      // Default to the first appropriate partner if none is selected
+      setPartner((currentPartner) => {
+        if (currentPartner && formattedPartners.some(p => p.id === currentPartner.id)) {
+          const updated = formattedPartners.find(p => p.id === currentPartner.id)!;
+          return updated;
+        }
+        // Prefer regular users for admins, and admins for regular users
+        const preferred = currentUser.role === 'admin'
+          ? (formattedPartners.find(p => p.role === 'user') || formattedPartners[0])
+          : (formattedPartners.find(p => p.role === 'admin') || formattedPartners[0]);
+        return preferred;
       });
 
-      if (data.public_key) {
-        try {
-          const myLocalKeys = await getOrCreateLocalKeys(currentUser.username);
-          const importedPartnerPublicKey = await importPublicKey(JSON.parse(data.public_key));
-          const derivedKey = await deriveSharedKey(myLocalKeys.privateKey, importedPartnerPublicKey);
-          setAesKey(derivedKey);
-        } catch (keyErr) {
-          console.error('Error deriving key', keyErr);
-        }
-      }
     } catch (err) {
       console.error('Failed to load partner details', err);
     }
-  }, [currentUser.id, currentUser.username]);
+  }, [currentUser.id, currentUser.role]);
+
+  // Derive AES Key whenever the active partner changes or their public key updates
+  useEffect(() => {
+    if (!partner || !partner.publicKey) {
+      setAesKey(null);
+      return;
+    }
+
+    async function deriveKey() {
+      try {
+        const myLocalKeys = await getOrCreateLocalKeys(currentUser.username);
+        const importedPartnerPublicKey = await importPublicKey(JSON.parse(partner!.publicKey!));
+        const derivedKey = await deriveSharedKey(myLocalKeys.privateKey, importedPartnerPublicKey);
+        setAesKey(derivedKey);
+      } catch (keyErr) {
+        console.error('Error deriving key for partner:', partner!.username, keyErr);
+        setAesKey(null);
+      }
+    }
+
+    deriveKey();
+  }, [partner?.id, partner?.publicKey, currentUser.username]);
 
   useEffect(() => {
     loadPartnerAndKeysRef.current = loadPartnerAndKeys;
@@ -183,7 +211,8 @@ export default function ChatWindow({ token: _token, currentUser, onLogout }: Cha
     if (!partner) return;
 
     // Use a unique room name for this pair of users
-    const roomName = `room-duochat-sync`;
+    const pairIds = [currentUser.id, partner.id].sort();
+    const roomName = `room-duochat-${pairIds[0]}-${pairIds[1]}`;
     const roomChannel = supabase.channel(roomName, {
       config: {
         presence: {
@@ -301,11 +330,12 @@ export default function ChatWindow({ token: _token, currentUser, onLogout }: Cha
     if (!key || !partner) return;
 
     async function loadHistory() {
+      if (!partner) return;
       try {
         const { data, error } = await supabase
           .from('messages')
           .select('*')
-          .or(`sender_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
+          .or(`and(sender_id.eq.${currentUser.id},recipient_id.eq.${partner.id}),and(sender_id.eq.${partner.id},recipient_id.eq.${currentUser.id})`)
           .order('created_at', { ascending: true });
 
         if (error) {
@@ -641,7 +671,7 @@ export default function ChatWindow({ token: _token, currentUser, onLogout }: Cha
             </div>
             
             {partner ? (
-              <div className="room-partner-card" onClick={loadPartnerAndKeys}>
+              <div className="room-partner-card active-partner-card">
                 <div className="avatar">
                   <CatAvatar initials={partner.username.substring(0, 2).toUpperCase()} size={56} />
                   <span className={`status-dot ${partnerOnline ? 'online' : ''}`}></span>
@@ -669,6 +699,49 @@ export default function ChatWindow({ token: _token, currentUser, onLogout }: Cha
               <div className="sidebar-empty">
                 <MessageSquare size={32} className="empty-chat-icon" />
                 <p>Waiting for another user to join the room.</p>
+              </div>
+            )}
+
+            {partners.length > 1 && (
+              <div className="other-partners-section" style={{ marginTop: '20px' }}>
+                <div className="section-title">
+                  <MessageSquare size={16} />
+                  <span>Other Approved Rooms</span>
+                </div>
+                <div className="partners-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                  {partners
+                    .filter((p) => p.id !== partner?.id)
+                    .map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="partner-select-btn"
+                        onClick={() => setPartner(p)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderRadius: '12px',
+                          padding: '10px 14px',
+                          color: 'var(--text-main)',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          transition: 'all 0.2s ease',
+                          width: '100%'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+                      >
+                        <CatAvatar initials={p.username.substring(0, 2).toUpperCase()} size={36} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '500', fontSize: '0.9rem' }}>{p.username}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Click to open chat</div>
+                        </div>
+                      </button>
+                    ))}
+                </div>
               </div>
             )}
           </div>
